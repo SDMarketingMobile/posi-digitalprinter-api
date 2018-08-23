@@ -6,9 +6,7 @@ module.exports = (sequelize, DataTypes) => {
     device_ip: DataTypes.STRING,
     device_port: DataTypes.INTEGER,
     mestra_ip: DataTypes.STRING,
-    mestra_port: DataTypes.INTEGER,
-    websocket_id: DataTypes.STRING,
-    view_mode: DataTypes.STRING
+    mestra_port: DataTypes.INTEGER
   }, {
     updatedAt: false,
     paranoid: true,

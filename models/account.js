@@ -3,7 +3,7 @@ module.exports = (sequelize, DataTypes) => {
   
   var Account = sequelize.define('Account', {
     pid: DataTypes.INTEGER,
-    name: DataTypes.STRING,
+    type: DataTypes.INTEGER,
     number: DataTypes.INTEGER,
     status_code: DataTypes.INTEGER,
     finishedAt: DataTypes.DATE

@@ -10,6 +10,34 @@ var AccountItem = models.AccountItem;
 var AccountItemAditional = models.AccountItemAditional;
 var RemoteDevice = models.RemoteDevice;
 
+function sendSocketMessage(device_ip, device_port, message_data) {
+    // send payload to specific remote device with websocket connection...
+    var client = new net.Socket();
+        client.setTimeout(1000); // set timeout to 1 seconds...
+
+    client.connect(device_port, device_ip, function() {
+        console.log('CONNECTED TO: '+ device_ip +':'+ device_port);
+        client.write(JSON.stringify(message_data));
+    });
+    client.on('data', function(data){
+        console.log('DATA RECEIVED: '+ data);
+        client.end();
+        client.destroy();
+    });
+
+    client.on('close', function(){
+        console.log('CONNECTION CLOSED TO: '+ device_ip +':'+ device_port);
+        client.end();
+        client.destroy();
+    });
+
+    client.on('error', function(){
+        console.log('CONNECTION ERROR TO: '+ device_ip +':'+ device_port);
+        client.end();
+        client.destroy();
+    }); 
+}
+
 async function sendResponse (res, account) {
     // retrieve account all items...
     var items = await account.getAccountItems();
@@ -43,34 +71,58 @@ async function sendResponse (res, account) {
         return ip +":"+ port;
     });
 
-    // looping for remote devices to send account payload...
-    underscore.keys(rds).forEach(rd_name => {
-        // get remote device specified items...
-        account.items = rds[rd_name];
+    // reorder for the major prepare time...
+    var pt = underscore.map(underscore.groupBy(items, 'prepare_time'), function(items, prepare_time){
+        // get remote device from first element...
+        var rd_ip = items[0].remoteDeviceProduction.device_ip;
+        var rd_port = items[0].remoteDeviceProduction.device_port;
 
-        // send payload to specific remote device with websocket connection...
-        var client = new net.Socket();
+        return {
+            remote_device: rd_ip +":"+ rd_port,
+            prepare_time: parseInt(prepare_time, 10)
+        };
+    }).reverse();
 
-        var device_ip = rd_name.split(':')[0];
-        var device_port = Number(rd_name.split(':')[1]);
+    // clear remote device order list...
+    var rds_order_list = [];
+    for (let i = 0; i < pt.length; i++) {
+        var can_add = true;
+        for (let x = 0; x < rds_order_list.length; x++) {
+            if(rds_order_list[x].remote_device == pt[i].remote_device){
+                can_add = false;
+            }
+        }
+        if(can_add) {
+            rds_order_list.push(pt[i]);
+        }
+    }
+    
+    var timer_incial = -1;
+    var timer_maximum = rds_order_list[0].prepare_time;
+    var qtd_rd_sended = 0;
+    var timer_loop = setInterval(function() {
+        timer_incial++;
+        
+        // looping for remote devices to send account payload...
+        rds_order_list.forEach(rd => {
+            var time_to_show = (timer_maximum - rd.prepare_time);
+            if(time_to_show == timer_incial) {
+                console.log('sending to '+ rd.remote_device);
+                qtd_rd_sended++;
 
-        client.connect(device_port, device_ip, function() {
-            console.log('CONNECTED TO: '+ device_ip +':'+ device_port);
-            client.write(JSON.stringify(account));
+                // get remote device specified items...
+                account.items = rds[rd.remote_device];
+
+                var device_ip = rd.remote_device.split(':')[0];
+                var device_port = Number(rd.remote_device.split(':')[1]);
+
+                sendSocketMessage(device_ip, device_port, account);
+            }
         });
-        client.on('data', function(data){
-            console.log('DATA RECEIVED: '+ data);
-            client.destroy();
-        });
 
-        client.on('close', function(){
-            console.log('CONNECTION CLOSED TO: '+ device_ip +':'+ device_port);
-        });
-
-        client.on('error', function(){
-            console.log('CONNECTION ERROR TO: '+ device_ip +':'+ device_port);
-        });
-    });
+        if(qtd_rd_sended == rds_order_list.length)
+            clearInterval(timer_loop);
+    }, 1000);
     
     res.status(201);
     res.send();
@@ -83,7 +135,7 @@ router.post('/', async function(req, res, next) {
             if(rds != null && rds.length > 0) {
                 var account = new Account();
                     account.pid         = req.body.pid;
-                    account.name        = req.body.name;
+                    account.type        = req.body.type;
                     account.number      = req.body.number;
                     account.status_code = 0; // every starts with 0 (pending production...)
                     account.save().then(aSaved => {
@@ -255,6 +307,17 @@ router.put('/items/sync', function(req, res, next) {
     });
 });
 
+async function sendRemoteDeviceConferenceUpdate(account_id, item_data) {
+    var account = await Account.findById(account_id);
+    var account_data = account.dataValues;
+        account_data.items = [];
+        account_data.items.push(item_data);
+    
+    var remoteDeviceConference = await RemoteDevice.findById(item_data.remote_device_conference_id);
+    
+    sendSocketMessage(remoteDeviceConference.device_ip, remoteDeviceConference.device_port, account_data);
+}
+
 // Check begining item preparation
 router.put('/:account_id/items/:account_item_id/begin', function(req, res, next) {
     AccountItem.findById(req.params.account_item_id).then(item => {
@@ -263,7 +326,9 @@ router.put('/:account_id/items/:account_item_id/begin', function(req, res, next)
                 item.update({
                     startedAt: new Date(),
                     status_code: 1
-                }).then(model => {
+                }).then(item_model => {
+                    // sendRemoteDeviceConferenceUpdate(req.params.account_id, item_model.dataValues);
+
                     res.status(200);
                     res.send();
                 });
@@ -293,6 +358,7 @@ router.put('/:account_id/items/:account_item_id/end', function(req, res, next) {
                     finishedAt: new Date(),
                     status_code: 2
                 }).then(model => {
+                    // sendRemoteDeviceConferenceUpdate(req.params.account_id, item_model.dataValues);
                     res.status(200);
                     res.send();
                 });
