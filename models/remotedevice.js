@@ -17,7 +17,7 @@ module.exports = (sequelize, DataTypes) => {
       foreignKey: 'remote_device_production_id'
     });
 
-    RemoteDevice.hasMany(models.AccountItem, {
+    RemoteDevice.hasMany(models.Account, {
       foreignKey: 'remote_device_conference_id'
     });
   };

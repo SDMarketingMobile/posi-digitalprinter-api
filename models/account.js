@@ -6,6 +6,7 @@ module.exports = (sequelize, DataTypes) => {
     type: DataTypes.INTEGER,
     number: DataTypes.INTEGER,
     status_code: DataTypes.INTEGER,
+    remote_device_conference_id: DataTypes.INTEGER,
     finishedAt: DataTypes.DATE
   }, {
     updatedAt: false,
@@ -16,6 +17,11 @@ module.exports = (sequelize, DataTypes) => {
   Account.associate = function(models) {
     Account.hasMany(models.AccountItem, {
       foreignKey: 'account_id'
+    });
+
+    Account.belongsTo(models.RemoteDevice, {
+      onDelete: "CASCADE",
+      foreignKey: 'remote_device_conference_id'
     });
   };
 

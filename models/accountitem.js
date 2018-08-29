@@ -9,7 +9,6 @@ module.exports = (sequelize, DataTypes) => {
     combo_name: DataTypes.STRING,
     status_code: DataTypes.INTEGER,
     remote_device_production_id: DataTypes.INTEGER,
-    remote_device_conference_id: DataTypes.INTEGER,
     startedAt: DataTypes.DATE,
     finishedAt: DataTypes.DATE,
     sync: {
@@ -32,11 +31,6 @@ module.exports = (sequelize, DataTypes) => {
     AccountItem.belongsTo(models.RemoteDevice, {
       onDelete: "CASCADE",
       foreignKey: 'remote_device_production_id'
-    });
-
-    AccountItem.belongsTo(models.RemoteDevice, {
-      onDelete: "CASCADE",
-      foreignKey: 'remote_device_conference_id'
     });
 
     AccountItem.hasMany(models.AccountItemAditional, {

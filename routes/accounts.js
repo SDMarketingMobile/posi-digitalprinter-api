@@ -38,30 +38,25 @@ function sendSocketMessage(device_ip, device_port, message_data) {
     }); 
 }
 
-async function sendResponse (res, account) {
+async function sendResponse(res, account) {
     // retrieve account all items...
     var items = await account.getAccountItems();
 
     account = account.dataValues;
 
+    // get conference remote device info...
+    account.remoteDeviceConference = await RemoteDevice.findById(account.remote_device_conference_id);
+    sendSocketMessage(
+        account.remoteDeviceConference.device_ip,   
+        account.remoteDeviceConference.device_port, 
+        account
+    );
+
     // looping for items to...
-    for(var i = 0; i < items.length; i++) {
-        // get aditionals...
-        var aditionals = await items[i].getAccountItemAditionals();
-        
-        // production remote device info...
-        var remote_device_production_id = items[i].remote_device_production_id
-        var remoteDeviceProduction = await RemoteDevice.findById(remote_device_production_id);
-
-        // and conference remote device info...
-        var remote_device_conference_id = items[i].remote_device_conference_id
-        var remoteDeviceConference = await RemoteDevice.findById(remote_device_conference_id);
-
+    for (var i = 0; i < items.length; i++) {
         items[i] = items[i].dataValues;
-
-        items[i].aditionals = aditionals;
-        items[i].remoteDeviceProduction = remoteDeviceProduction;
-        items[i].remoteDeviceConference = remoteDeviceConference;
+        items[i].aditionals = await items[i].getAccountItemAditionals();
+        items[i].remoteDeviceProduction = await RemoteDevice.findById(items[i].remote_device_production_id);
     }
     
     // identifying remote devices to send account...
@@ -138,6 +133,14 @@ router.post('/', async function(req, res, next) {
                     account.type        = req.body.type;
                     account.number      = req.body.number;
                     account.status_code = 0; // every starts with 0 (pending production...)
+
+                    rds.forEach(rd => {
+                        // obtain id of conference remote device...
+                        if(rd.pid == req.body.remote_device_conference.pid) {
+                            account.remote_device_conference_id = rd.id;
+                        }
+                    });
+
                     account.save().then(aSaved => {
                         if(req.body.items != null && req.body.items.length > 0) {
                             var cont = 0;
@@ -155,11 +158,6 @@ router.post('/', async function(req, res, next) {
                                     // obtain id of production remote device...
                                     if(rd.pid == item.remote_device_production.pid) {
                                         accountItem.remote_device_production_id = rd.id;
-                                    }
-
-                                    // obtain id of conference remote device...
-                                    if(rd.pid == item.remote_device_conference.pid) {
-                                        accountItem.remote_device_conference_id = rd.id;
                                     }
                                 });
 
@@ -239,6 +237,50 @@ router.get('/:account_id/items', function(req, res, next) {
   });
 });
 
+// Get account items not completed
+async function sendItemsNotCompletedResponse(res, accounts) {
+    for(var i = 0; i < accounts.length; i++) {
+        accounts[i].items = await AccountItem.findAll({
+            where: {
+                account_id: accounts[i].id,
+                status_code: {
+                    [Op.ne]: 2
+                }
+            }
+        });
+        
+        for(var x = 0; x < accounts[i].items.length; x++) {
+            accounts[i].items[x].aditionals = await AccountItemAditional.findAll({
+                where: {
+                    account_item_id: accounts[i].items[x].id
+                }
+            });
+        }
+    }
+
+    res.json(accounts);
+}
+
+router.get('/items/notcompleted', function(req, res, next){
+    var sqlQuery  = "SELECT acc.* ";
+        sqlQuery += "FROM tbl_account_items        AS tai ";
+        sqlQuery += "INNER JOIN tbl_accounts       AS acc ON acc.id = tai.account_id ";
+        sqlQuery += "INNER JOIN tbl_remote_devices AS trd ON trd.id = tai.remote_device_production_id ";
+        sqlQuery += "WHERE tai.status_code <> 2 ";
+        sqlQuery += "   AND trd.id = '"+ req.query.remote_device_id +"' ";
+        sqlQuery += "GROUP BY acc.id";
+    
+    models.sequelize.query(sqlQuery).then(results => {
+            if(results[0].length > 0) {
+                sendItemsNotCompletedResponse(res, results[0]);
+            }
+            else {
+                res.status(404);
+                res.send('');
+            }
+        });
+});
+
 // Get account items completed
 async function sendItemsCompletedResponse(res, accounts) {
     for(var i = 0; i < accounts.length; i++) {
@@ -310,12 +352,15 @@ router.put('/items/sync', function(req, res, next) {
 async function sendRemoteDeviceConferenceUpdate(account_id, item_data) {
     var account = await Account.findById(account_id);
     var account_data = account.dataValues;
+        account_data.remoteDeviceConference = await RemoteDevice.findById(account.remote_device_conference_id);
         account_data.items = [];
         account_data.items.push(item_data);
     
-    var remoteDeviceConference = await RemoteDevice.findById(item_data.remote_device_conference_id);
-    
-    sendSocketMessage(remoteDeviceConference.device_ip, remoteDeviceConference.device_port, account_data);
+    sendSocketMessage(
+        account_data.remoteDeviceConference.device_ip, 
+        account_data.remoteDeviceConference.device_port, 
+        account_data
+    );
 }
 
 // Check begining item preparation
@@ -327,7 +372,7 @@ router.put('/:account_id/items/:account_item_id/begin', function(req, res, next)
                     startedAt: new Date(),
                     status_code: 1
                 }).then(item_model => {
-                    // sendRemoteDeviceConferenceUpdate(req.params.account_id, item_model.dataValues);
+                    sendRemoteDeviceConferenceUpdate(req.params.account_id, item_model.dataValues);
 
                     res.status(200);
                     res.send();
@@ -358,7 +403,7 @@ router.put('/:account_id/items/:account_item_id/end', function(req, res, next) {
                     finishedAt: new Date(),
                     status_code: 2
                 }).then(model => {
-                    // sendRemoteDeviceConferenceUpdate(req.params.account_id, item_model.dataValues);
+                    sendRemoteDeviceConferenceUpdate(req.params.account_id, item_model.dataValues);
                     res.status(200);
                     res.send();
                 });

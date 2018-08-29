@@ -19,6 +19,21 @@ router.get('/', function(req, res, next) {
 	});
 });
 
+router.get('/:device_ip/:device_port', function(req, res, next) {
+	RemoteDevice.findOne({
+		device_ip: req.params.device_ip,
+		device_port: req.params.device_port
+	}).then(rd => {
+	  if(rd != null) {
+		  res.json(rd);
+	  }
+	  else {
+		  res.status(404);
+		  res.send('');
+	  }
+  });
+});
+
 // Charge database with remote devices data
 router.post('/reload', function(req, res, next) {
 	RemoteDevice.destroy({
